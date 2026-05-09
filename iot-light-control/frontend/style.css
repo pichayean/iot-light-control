@@ -1,0 +1,240 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Header */
+header {
+  text-align: center;
+  padding: 30px 0 20px;
+}
+
+h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}
+
+.status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e293b;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #64748b;
+  transition: background 0.3s;
+}
+
+.status-dot.online {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e88;
+}
+
+.status-dot.offline {
+  background: #ef4444;
+}
+
+/* Global controls */
+.global-controls {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 28px 0;
+  flex-wrap: wrap;
+}
+
+/* Buttons */
+.btn {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-all-on {
+  background: #22c55e;
+  color: #fff;
+}
+
+.btn-all-on:hover {
+  background: #16a34a;
+}
+
+.btn-all-off {
+  background: #475569;
+  color: #fff;
+}
+
+.btn-all-off:hover {
+  background: #334155;
+}
+
+.btn-on {
+  background: #3b82f6;
+  color: #fff;
+  flex: 1;
+}
+
+.btn-on:hover {
+  background: #2563eb;
+}
+
+.btn-off {
+  background: #475569;
+  color: #fff;
+  flex: 1;
+}
+
+.btn-off:hover {
+  background: #334155;
+}
+
+.btn-toggle {
+  background: #8b5cf6;
+  color: #fff;
+  flex: 1;
+}
+
+.btn-toggle:hover {
+  background: #7c3aed;
+}
+
+/* Lights grid */
+.lights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+/* Light card */
+.card {
+  background: #1e293b;
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 2px solid transparent;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.card.on {
+  border-color: #22c55e44;
+  box-shadow: 0 0 20px #22c55e22;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+/* Bulb icon */
+.bulb {
+  font-size: 2.2rem;
+  transition: filter 0.3s;
+}
+
+.bulb.on {
+  filter: drop-shadow(0 0 10px #fde047);
+}
+
+.bulb.off {
+  filter: grayscale(1) opacity(0.4);
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.status-badge.on {
+  background: #14532d;
+  color: #4ade80;
+}
+
+.status-badge.off {
+  background: #1e293b;
+  color: #64748b;
+  border: 1px solid #334155;
+}
+
+/* Card button row */
+.card-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.card-buttons .btn {
+  padding: 9px 10px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  h1 {
+    font-size: 1.4rem;
+  }
+
+  .lights-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .global-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-all-on,
+  .btn-all-off {
+    width: 100%;
+  }
+}

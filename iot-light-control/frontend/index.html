@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IoT Light Control System</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>IoT Light Control System</h1>
+      <p class="subtitle">ระบบควบคุมไฟอัตโนมัติผ่านเว็บไซต์</p>
+      <div class="status-bar">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="connectionStatus">กำลังเชื่อมต่อ...</span>
+      </div>
+    </header>
+
+    <div class="global-controls">
+      <button class="btn btn-all-on" onclick="setAllLights('on')">เปิดไฟทั้งหมด</button>
+      <button class="btn btn-all-off" onclick="setAllLights('off')">ปิดไฟทั้งหมด</button>
+    </div>
+
+    <div class="lights-grid" id="lightsGrid">
+      <!-- Cards จะถูก render ด้วย JavaScript -->
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

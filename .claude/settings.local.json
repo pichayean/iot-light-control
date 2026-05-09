@@ -1,0 +1,10 @@
+{
+  "enabledPlugins": {
+    "pordee@pordee": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)"
+    ]
+  }
+}

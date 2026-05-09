@@ -1,0 +1,13 @@
+services:
+  iot-light-control:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: iot-light-control-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
