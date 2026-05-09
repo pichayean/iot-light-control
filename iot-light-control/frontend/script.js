@@ -60,20 +60,19 @@ function renderDeviceInfo(device) {
 
   if (!device) {
     deviceInfo.innerHTML = `
-      <div class="device-card offline">
-        <h3>ESP32 Device</h3>
-        <p>ยังไม่มีข้อมูลจาก ESP32</p>
+      <div class="device-card offline compact-device">
+        <span class="device-label">ESP32:</span>
+        <span class="wifi-name">ยังไม่มีข้อมูล Wi-Fi</span>
       </div>
     `;
     return;
   }
 
   deviceInfo.innerHTML = `
-    <div class="device-card">
-      <h3>ESP32 Device</h3>
-      <p><strong>Wi-Fi:</strong> ${device.ssid || "-"}</p>
-      <p><strong>Signal:</strong> ${device.rssi ?? "-"} dBm</p>
-      <p><strong>Last Seen:</strong> ${formatLastSeen(device.lastSeen)}</p>
+    <div class="device-card compact-device">
+      <span class="device-label">Wi-Fi:</span>
+      <span class="wifi-name">${device.ssid || "-"}</span>
+      <span class="wifi-rssi">${device.rssi ?? "-"} dBm</span>
     </div>
   `;
 }

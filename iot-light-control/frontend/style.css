@@ -262,3 +262,29 @@ h1 {
 .device-card.offline {
   opacity: 0.7;
 }
+
+
+.compact-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.device-label {
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+.wifi-name {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.wifi-rssi {
+  opacity: 0.6;
+  font-size: 13px;
+  margin-left: auto;
+}
