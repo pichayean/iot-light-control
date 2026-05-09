@@ -1,13 +1,7 @@
 {
-  "light1": false,
-  "light2": false,
-  "light3": false,
-  "light4": false,
-  "light5": false,
-  "device": {
-    "ssid": "",
-    "ip": "",
-    "rssi": 0,
-    "lastSeen": ""
-  }
+  "light1": true,
+  "light2": true,
+  "light3": true,
+  "light4": true,
+  "light5": true
 }

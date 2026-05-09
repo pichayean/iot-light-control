@@ -72,7 +72,6 @@ function renderDeviceInfo(device) {
     <div class="device-card">
       <h3>ESP32 Device</h3>
       <p><strong>Wi-Fi:</strong> ${device.ssid || "-"}</p>
-      <p><strong>IP Address:</strong> ${device.ip || "-"}</p>
       <p><strong>Signal:</strong> ${device.rssi ?? "-"} dBm</p>
       <p><strong>Last Seen:</strong> ${formatLastSeen(device.lastSeen)}</p>
     </div>
