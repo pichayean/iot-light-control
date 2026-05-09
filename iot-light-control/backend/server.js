@@ -19,6 +19,12 @@ const DEFAULT_LIGHTS = {
   light3: false,
   light4: false,
   light5: false,
+  device: {
+    ssid: "",
+    ip: "",
+    rssi: 0,
+    lastSeen: "",
+  },
 };
 
 function readLights() {
@@ -30,10 +36,29 @@ function writeLights(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf8");
 }
 
-// ถ้า lights.json หายหรือ JSON เสีย ให้สร้างใหม่ด้วยค่า default
+function isValidLightId(id) {
+  return ["1", "2", "3", "4", "5"].includes(id);
+}
+
+function isValidState(state) {
+  return ["on", "off"].includes(state);
+}
+
+// ถ้า lights.json หาย, JSON เสีย, หรือ key ไม่ครบ ให้ซ่อมข้อมูล
 function initDB() {
   try {
-    readLights();
+    const lights = readLights();
+
+    const mergedLights = {
+      ...DEFAULT_LIGHTS,
+      ...lights,
+      device: {
+        ...DEFAULT_LIGHTS.device,
+        ...(lights.device || {}),
+      },
+    };
+
+    writeLights(mergedLights);
   } catch {
     console.log("[DB] lights.json not found or invalid — creating with defaults");
     writeLights(DEFAULT_LIGHTS);
@@ -42,13 +67,16 @@ function initDB() {
 
 initDB();
 
-// GET /api/lights — ดึงสถานะไฟทั้งหมด
+// GET /api/lights — ดึงสถานะไฟทั้งหมด + ข้อมูล ESP32
 app.get("/api/lights", (req, res) => {
   try {
     const lights = readLights();
     res.json(lights);
   } catch (err) {
-    res.status(500).json({ success: false, message: "Cannot read lights data" });
+    res.status(500).json({
+      success: false,
+      message: "Cannot read lights data",
+    });
   }
 });
 
@@ -56,29 +84,45 @@ app.get("/api/lights", (req, res) => {
 app.get("/api/lights/:id", (req, res) => {
   const { id } = req.params;
 
-  if (!["1", "2", "3", "4", "5"].includes(id)) {
-    return res.status(400).json({ success: false, message: "Invalid light id. Must be 1-5" });
+  if (!isValidLightId(id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid light id. Must be 1-5",
+    });
   }
 
   try {
     const lights = readLights();
-    res.json({ success: true, id: Number(id), state: lights[`light${id}`] });
+    res.json({
+      success: true,
+      id: Number(id),
+      state: lights[`light${id}`],
+    });
   } catch (err) {
-    res.status(500).json({ success: false, message: "Cannot read lights data" });
+    res.status(500).json({
+      success: false,
+      message: "Cannot read lights data",
+    });
   }
 });
 
-// POST /api/lights/all/:state — เปิด/ปิดไฟทั้งหมด (ต้องกำหนดก่อน route /:id/:state เพื่อไม่ให้ Express ตีความ "all" เป็น id)
+// POST /api/lights/all/:state — เปิด/ปิดไฟทั้งหมด
 app.post("/api/lights/all/:state", (req, res) => {
   const { state } = req.params;
 
-  if (!["on", "off"].includes(state)) {
-    return res.status(400).json({ success: false, message: "Invalid state. Must be 'on' or 'off'" });
+  if (!isValidState(state)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid state. Must be 'on' or 'off'",
+    });
   }
 
   try {
+    const oldData = readLights();
     const value = state === "on";
+
     const lights = {
+      ...oldData,
       light1: value,
       light2: value,
       light3: value,
@@ -94,7 +138,10 @@ app.post("/api/lights/all/:state", (req, res) => {
       lights,
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: "Cannot write lights data" });
+    res.status(500).json({
+      success: false,
+      message: "Cannot write lights data",
+    });
   }
 });
 
@@ -102,17 +149,25 @@ app.post("/api/lights/all/:state", (req, res) => {
 app.post("/api/lights/:id/:state", (req, res) => {
   const { id, state } = req.params;
 
-  if (!["1", "2", "3", "4", "5"].includes(id)) {
-    return res.status(400).json({ success: false, message: "Invalid light id. Must be 1-5" });
+  if (!isValidLightId(id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid light id. Must be 1-5",
+    });
   }
 
-  if (!["on", "off"].includes(state)) {
-    return res.status(400).json({ success: false, message: "Invalid state. Must be 'on' or 'off'" });
+  if (!isValidState(state)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid state. Must be 'on' or 'off'",
+    });
   }
 
   try {
     const lights = readLights();
+
     lights[`light${id}`] = state === "on";
+
     writeLights(lights);
 
     res.json({
@@ -121,10 +176,81 @@ app.post("/api/lights/:id/:state", (req, res) => {
       lights,
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: "Cannot write lights data" });
+    res.status(500).json({
+      success: false,
+      message: "Cannot write lights data",
+    });
   }
 });
 
-app.listen(PORT, () => {
+// POST /api/device — ESP32 ส่งข้อมูล Wi-Fi / Device status
+app.post("/api/device", (req, res) => {
+  const { ssid, ip, rssi } = req.body;
+
+  if (typeof ssid !== "string") {
+    return res.status(400).json({
+      success: false,
+      message: "ssid must be string",
+    });
+  }
+
+  if (typeof ip !== "string") {
+    return res.status(400).json({
+      success: false,
+      message: "ip must be string",
+    });
+  }
+
+  if (typeof rssi !== "number") {
+    return res.status(400).json({
+      success: false,
+      message: "rssi must be number",
+    });
+  }
+
+  try {
+    const lights = readLights();
+
+    lights.device = {
+      ssid,
+      ip,
+      rssi,
+      lastSeen: new Date().toISOString(),
+    };
+
+    writeLights(lights);
+
+    res.json({
+      success: true,
+      message: "Device status updated",
+      device: lights.device,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Cannot write device status",
+    });
+  }
+});
+
+// GET /api/device — frontend เรียกดูข้อมูล ESP32 แยกได้
+app.get("/api/device", (req, res) => {
+  try {
+    const lights = readLights();
+
+    res.json({
+      success: true,
+      device: lights.device || DEFAULT_LIGHTS.device,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Cannot read device status",
+    });
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`ESP32 API: http://YOUR_SERVER_IP:${PORT}/api/lights`);
 });

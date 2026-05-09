@@ -3,5 +3,11 @@
   "light2": false,
   "light3": false,
   "light4": false,
-  "light5": false
+  "light5": false,
+  "device": {
+    "ssid": "",
+    "ip": "",
+    "rssi": 0,
+    "lastSeen": ""
+  }
 }

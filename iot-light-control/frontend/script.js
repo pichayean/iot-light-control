@@ -6,11 +6,15 @@ async function loadLights() {
   // ป้องกัน fetch ซ้อนกันระหว่าง setInterval กับ setLight/setAllLights
   if (isLoading) return;
   isLoading = true;
+
   try {
     const res = await fetch(API_BASE);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
     const lights = await res.json();
+
     renderLights(lights);
+    renderDeviceInfo(lights.device);
     setConnectionStatus(true);
   } catch (err) {
     setConnectionStatus(false);
@@ -47,6 +51,47 @@ function renderLights(lights) {
 
     grid.appendChild(card);
   }
+}
+
+function renderDeviceInfo(device) {
+  const deviceInfo = document.getElementById("deviceInfo");
+
+  if (!deviceInfo) return;
+
+  if (!device) {
+    deviceInfo.innerHTML = `
+      <div class="device-card offline">
+        <h3>ESP32 Device</h3>
+        <p>ยังไม่มีข้อมูลจาก ESP32</p>
+      </div>
+    `;
+    return;
+  }
+
+  deviceInfo.innerHTML = `
+    <div class="device-card">
+      <h3>ESP32 Device</h3>
+      <p><strong>Wi-Fi:</strong> ${device.ssid || "-"}</p>
+      <p><strong>IP Address:</strong> ${device.ip || "-"}</p>
+      <p><strong>Signal:</strong> ${device.rssi ?? "-"} dBm</p>
+      <p><strong>Last Seen:</strong> ${formatLastSeen(device.lastSeen)}</p>
+    </div>
+  `;
+}
+
+function formatLastSeen(lastSeen) {
+  if (!lastSeen) return "-";
+
+  const date = new Date(lastSeen);
+
+  if (Number.isNaN(date.getTime())) {
+    return lastSeen;
+  }
+
+  return date.toLocaleString("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
 }
 
 function setConnectionStatus(online) {
