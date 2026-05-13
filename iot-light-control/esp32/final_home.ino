@@ -8,6 +8,7 @@ struct WiFiCredential {
 };
 
 WiFiCredential wifiList[] = {
+  {"Home_2.4G", "asdf1234"},
   {"home88_53_2.4G", "P@ssw0rdasdf"},
   {"MasterShifu", "@12345678"},
   {"WiFi_สำรอง_2", "password2"},

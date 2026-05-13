@@ -3,5 +3,6 @@
   "light2": true,
   "light3": true,
   "light4": true,
-  "light5": true
+  "light5": true,
+  "sensorTargets": [1, 2]
 }

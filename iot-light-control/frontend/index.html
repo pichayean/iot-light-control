@@ -26,9 +26,21 @@
       </div>
     </section>
 
+    <!-- แสดงว่าหลอดไหนถูกเลือกให้ใช้ Sensor -->
+    <section id="sensorInfo" class="sensor-info">
+      <div class="sensor-card">
+        <span class="sensor-label">Sensor แสง:</span>
+        <span class="sensor-value">กำลังโหลด...</span>
+      </div>
+    </section>
+
     <div class="global-controls">
-      <button class="btn btn-all-on" onclick="setAllLights('on')">เปิดไฟทั้งหมด</button>
-      <button class="btn btn-all-off" onclick="setAllLights('off')">ปิดไฟทั้งหมด</button>
+      <button class="btn btn-all-on" onclick="setAllLights('on')">
+        เปิดไฟทั้งหมด
+      </button>
+      <button class="btn btn-all-off" onclick="setAllLights('off')">
+        ปิดไฟทั้งหมด
+      </button>
     </div>
 
     <div class="lights-grid" id="lightsGrid">

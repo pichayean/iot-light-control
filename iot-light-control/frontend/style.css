@@ -288,3 +288,57 @@ h1 {
   font-size: 13px;
   margin-left: auto;
 }
+
+
+.sensor-option {
+  margin: 12px 0;
+  font-size: 0.95rem;
+}
+
+.sensor-option label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.sensor-option input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.card.sensor-enabled {
+  border: 2px solid #facc15;
+}
+
+.sensor-info {
+  margin: 16px 0;
+}
+
+.sensor-card {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sensor-card.active {
+  background: rgba(250, 204, 21, 0.16);
+}
+
+.sensor-label {
+  font-weight: 600;
+}
+
+.sensor-value {
+  opacity: 0.9;
+}
+
+.sensor-state {
+  margin-left: 10px;
+  opacity: 0.85;
+}
