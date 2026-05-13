@@ -19,11 +19,18 @@ const DEFAULT_LIGHTS = {
   light3: false,
   light4: false,
   light5: false,
+
+  // หลอดที่ให้ sensor แสงควบคุม
+  // เช่น [1, 2] = sensor คุมหลอด 1 และ 2
+  sensorTargets: [],
+
   device: {
     ssid: "",
     ip: "",
     rssi: 0,
     lastSeen: "",
+    lightSensor: null,
+    isDark: null,
   },
 };
 
@@ -37,11 +44,23 @@ function writeLights(data) {
 }
 
 function isValidLightId(id) {
-  return ["1", "2", "3", "4", "5"].includes(id);
+  return ["1", "2", "3", "4", "5"].includes(String(id));
 }
 
 function isValidState(state) {
   return ["on", "off"].includes(state);
+}
+
+function normalizeSensorTargets(targets) {
+  if (!Array.isArray(targets)) {
+    return [];
+  }
+
+  return [...new Set(
+    targets
+      .map(Number)
+      .filter((id) => id >= 1 && id <= 5)
+  )].sort((a, b) => a - b);
 }
 
 // ถ้า lights.json หาย, JSON เสีย, หรือ key ไม่ครบ ให้ซ่อมข้อมูล
@@ -52,6 +71,7 @@ function initDB() {
     const mergedLights = {
       ...DEFAULT_LIGHTS,
       ...lights,
+      sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
       device: {
         ...DEFAULT_LIGHTS.device,
         ...(lights.device || {}),
@@ -67,11 +87,20 @@ function initDB() {
 
 initDB();
 
-// GET /api/lights — ดึงสถานะไฟทั้งหมด + ข้อมูล ESP32
+// GET /api/lights — ดึงสถานะไฟทั้งหมด + ข้อมูล ESP32 + sensor config
 app.get("/api/lights", (req, res) => {
   try {
     const lights = readLights();
-    res.json(lights);
+
+    res.json({
+      ...DEFAULT_LIGHTS,
+      ...lights,
+      sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
+      device: {
+        ...DEFAULT_LIGHTS.device,
+        ...(lights.device || {}),
+      },
+    });
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -93,6 +122,7 @@ app.get("/api/lights/:id", (req, res) => {
 
   try {
     const lights = readLights();
+
     res.json({
       success: true,
       id: Number(id),
@@ -128,6 +158,11 @@ app.post("/api/lights/all/:state", (req, res) => {
       light3: value,
       light4: value,
       light5: value,
+      sensorTargets: normalizeSensorTargets(oldData.sensorTargets || []),
+      device: {
+        ...DEFAULT_LIGHTS.device,
+        ...(oldData.device || {}),
+      },
     };
 
     writeLights(lights);
@@ -141,6 +176,98 @@ app.post("/api/lights/all/:state", (req, res) => {
     res.status(500).json({
       success: false,
       message: "Cannot write lights data",
+    });
+  }
+});
+
+// POST /api/lights/sensor-config — frontend ตั้งค่าว่าหลอดไหนใช้ sensor
+app.post("/api/lights/sensor-config", (req, res) => {
+  const { sensorTargets } = req.body;
+
+  if (!Array.isArray(sensorTargets)) {
+    return res.status(400).json({
+      success: false,
+      message: "sensorTargets must be an array",
+    });
+  }
+
+  try {
+    const lights = readLights();
+    const normalizedTargets = normalizeSensorTargets(sensorTargets);
+
+    lights.sensorTargets = normalizedTargets;
+
+    writeLights(lights);
+
+    res.json({
+      success: true,
+      message: "Sensor config updated",
+      sensorTargets: normalizedTargets,
+      lights,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Cannot write sensor config",
+    });
+  }
+});
+
+// GET /api/lights/sensor-config — ดู config หลอดที่ใช้ sensor
+app.get("/api/lights/sensor-config", (req, res) => {
+  try {
+    const lights = readLights();
+
+    res.json({
+      success: true,
+      sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Cannot read sensor config",
+    });
+  }
+});
+
+// POST /api/lights/sensor/:state
+// ESP32 เรียก endpoint นี้ตอน sensor เจอมืด/สว่าง
+// on  = เปิดเฉพาะหลอดที่ติ๊กใช้ sensor
+// off = ปิดเฉพาะหลอดที่ติ๊กใช้ sensor
+app.post("/api/lights/sensor/:state", (req, res) => {
+  const { state } = req.params;
+
+  if (!isValidState(state)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid state. Must be 'on' or 'off'",
+    });
+  }
+
+  try {
+    const lights = readLights();
+    const targets = normalizeSensorTargets(lights.sensorTargets || []);
+    const value = state === "on";
+
+    targets.forEach((id) => {
+      lights[`light${id}`] = value;
+    });
+
+    lights.sensorTargets = targets;
+
+    writeLights(lights);
+
+    res.json({
+      success: true,
+      message: `Sensor target lights turned ${state}`,
+      state,
+      sensorTargets: targets,
+      lights,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Cannot write sensor lights data",
     });
   }
 });
@@ -167,6 +294,7 @@ app.post("/api/lights/:id/:state", (req, res) => {
     const lights = readLights();
 
     lights[`light${id}`] = state === "on";
+    lights.sensorTargets = normalizeSensorTargets(lights.sensorTargets || []);
 
     writeLights(lights);
 
@@ -185,7 +313,7 @@ app.post("/api/lights/:id/:state", (req, res) => {
 
 // POST /api/device — ESP32 ส่งข้อมูล Wi-Fi / Device status
 app.post("/api/device", (req, res) => {
-  const { ssid, ip, rssi } = req.body;
+  const { ssid, ip, rssi, lightSensor, isDark } = req.body;
 
   if (typeof ssid !== "string") {
     return res.status(400).json({
@@ -216,7 +344,13 @@ app.post("/api/device", (req, res) => {
       ip,
       rssi,
       lastSeen: new Date().toISOString(),
+
+      // optional จาก ESP32
+      lightSensor: typeof lightSensor === "number" ? lightSensor : null,
+      isDark: typeof isDark === "boolean" ? isDark : null,
     };
+
+    lights.sensorTargets = normalizeSensorTargets(lights.sensorTargets || []);
 
     writeLights(lights);
 
@@ -240,7 +374,10 @@ app.get("/api/device", (req, res) => {
 
     res.json({
       success: true,
-      device: lights.device || DEFAULT_LIGHTS.device,
+      device: {
+        ...DEFAULT_LIGHTS.device,
+        ...(lights.device || {}),
+      },
     });
   } catch (err) {
     res.status(500).json({
@@ -248,6 +385,11 @@ app.get("/api/device", (req, res) => {
       message: "Cannot read device status",
     });
   }
+});
+
+// fallback ให้เปิดหน้าเว็บได้เวลา refresh route อื่น
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/index.html"));
 });
 
 app.listen(PORT, "0.0.0.0", () => {
