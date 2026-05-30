@@ -62,6 +62,7 @@ const unsigned long LOOPBACK_INTERVAL = 15000;
 const unsigned long LOOPBACK_TIMEOUT = 5000;
 const unsigned long SELF_LIGHT_TEST_INTERVAL = 20000;
 const unsigned long SENSOR_CHECK_INTERVAL = 500;
+const unsigned long SAVED_WIFI_CONNECT_TIMEOUT_MS = 15000;
 
 const char* configPortalSsid = "ESP32-Light-Setup";
 const char* configPortalPass = "12345678";
@@ -81,6 +82,7 @@ bool hasSentSensorState = false;
 unsigned long lastSensorCheck = 0;
 
 bool connectWiFi();
+bool connectSavedWiFi();
 bool reconnectWiFi();
 bool openWiFiConfigPortal();
 void connectMqtt();
@@ -220,6 +222,10 @@ bool connectWiFi() {
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);
 
+  if (connectSavedWiFi()) {
+    return true;
+  }
+
   Serial.println("[WiFi] Trying saved Wi-Fi list...");
 
   for (int i = 0; i < wifiCount; i++) {
@@ -256,10 +262,54 @@ bool connectWiFi() {
   return false;
 }
 
+bool connectSavedWiFi() {
+  Serial.println("[WiFi] Trying saved credentials in NVS...");
+  if (WiFi.status() == WL_IDLE_STATUS) {
+    Serial.println("[WiFi] STA is already connecting, wait before retry...");
+    unsigned long waitStart = millis();
+    while (WiFi.status() == WL_IDLE_STATUS && millis() - waitStart < 3000) {
+      delay(100);
+      yield();
+    }
+  }
+  WiFi.disconnect(true, false);
+  delay(200);
+  WiFi.begin();
+
+  unsigned long startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < SAVED_WIFI_CONNECT_TIMEOUT_MS) {
+    delay(500);
+    Serial.print(".");
+    yield();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println();
+    Serial.println("[WiFi] Saved credentials connect failed");
+    return false;
+  }
+
+  Serial.println();
+  Serial.printf("[WiFi] Connected using saved credentials: %s\n", WiFi.SSID().c_str());
+  Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("[WiFi] RSSI: %d dBm\n", WiFi.RSSI());
+  currentWifiIndex = -1;
+  reconnectFailCount = 0;
+  return true;
+}
+
 bool reconnectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     return true;
   }
+
+  if (WiFi.status() == WL_IDLE_STATUS) {
+    Serial.println("[WiFi] Reconnect skipped: STA is connecting in progress");
+    return false;
+  }
+
+  WiFi.disconnect(true, false);
+  delay(200);
 
   if (currentWifiIndex >= 0 && currentWifiIndex < wifiCount) {
     Serial.printf("[WiFi] Reconnecting to same SSID: %s\n", wifiList[currentWifiIndex].ssid);
