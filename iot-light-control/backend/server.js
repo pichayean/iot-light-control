@@ -5,13 +5,17 @@ const path = require("path");
 const mqtt = require("mqtt");
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const DB_FILE = path.join(__dirname, "lights.json");
 const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
 const MQTT_LIGHT_TOPIC = process.env.MQTT_LIGHT_TOPIC || "iot-light-control/lights/state";
 const MQTT_DEVICE_TOPIC = process.env.MQTT_DEVICE_TOPIC || "iot-light-control/device/status";
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 
-app.use(cors());
+app.use(cors({
+  origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",").map((origin) => origin.trim()),
+}));
 app.use(express.json());
 
 // เสิร์ฟ static frontend จากโฟลเดอร์ frontend
@@ -501,6 +505,6 @@ app.get("*", (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`ESP32 API: http://YOUR_SERVER_IP:${PORT}/api/lights`);
+  console.log(`Server running on ${PUBLIC_BASE_URL}`);
+  console.log(`ESP32 API: ${PUBLIC_BASE_URL}/api/lights`);
 });

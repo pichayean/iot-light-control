@@ -9,18 +9,17 @@ struct WiFiCredential {
 };
 
 WiFiCredential wifiList[] = {
+  {"FakeHotspots", "P@ssw0rdasdf"},
   {"Home_2.4G", "asdf1234"},
   {"home88_53_2.4G", "P@ssw0rdasdf"},
-  {"MasterShifu", "@12345678"},
-  {"WiFi_สำรอง_2", "password2"},
-  {"Hotspot_Phone", "password3"}
+  {"MasterShifu", "@12345678"}
 };
 
 const int wifiCount = sizeof(wifiList) / sizeof(wifiList[0]);
 
 // ===== MQTT Broker =====
-// เปลี่ยนเป็น IP ของเครื่องที่รัน docker compose
-const char* mqttHost = "192.168.1.44";
+// IP/Public Host ของเครื่องที่รัน MQTT broker
+const char* mqttHost = "144.126.140.118";
 const int mqttPort = 1883;
 const char* mqttLightTopic = "iot-light-control/lights/state";
 const char* mqttDeviceTopic = "iot-light-control/device/status";

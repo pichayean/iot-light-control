@@ -10,6 +10,9 @@ services:
       - ./backend:/app
     environment:
       - NODE_ENV=production
+      - PORT=3000
+      - PUBLIC_BASE_URL=http://144.126.140.118:3099
+      - CORS_ORIGIN=http://144.126.140.118:3099
       - MQTT_URL=mqtt://mosquitto:1883
       - MQTT_LIGHT_TOPIC=iot-light-control/lights/state
       - MQTT_DEVICE_TOPIC=iot-light-control/device/status
