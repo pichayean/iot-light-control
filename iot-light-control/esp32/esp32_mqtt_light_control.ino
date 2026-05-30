@@ -23,6 +23,9 @@ const char* mqttHost = "144.126.140.118";
 const int mqttPort = 1883;
 const char* mqttLightTopic = "iot-light-control/lights/state";
 const char* mqttDeviceTopic = "iot-light-control/device/status";
+const char* mqttLoopbackTopic = "iot-light-control/debug/loopback";
+const bool ENABLE_LOOPBACK_TEST = false;
+const bool ENABLE_SELF_LIGHT_TEST = false;
 
 // ===== GPIO ไฟ 5 ดวง =====
 const int lightPins[5] = {23, 22, 21, 19, 18};
@@ -31,8 +34,8 @@ const int lightPins[5] = {23, 22, 21, 19, 18};
 const int relay1Pin = 26;
 const int relay2Pin = 27;
 
-#define LIGHT_ON  HIGH
-#define LIGHT_OFF LOW
+#define LIGHT_ON  LOW
+#define LIGHT_OFF HIGH
 #define RELAY_ON  LOW
 #define RELAY_OFF HIGH
 
@@ -50,6 +53,9 @@ const unsigned long RECONNECT_INTERVAL = 20000;
 const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
 const unsigned long WIFI_PORTAL_TRIGGER_INTERVAL = 60000;
 const unsigned long WIFI_PORTAL_TIMEOUT_SECONDS = 180;
+const unsigned long LOOPBACK_INTERVAL = 15000;
+const unsigned long LOOPBACK_TIMEOUT = 5000;
+const unsigned long SELF_LIGHT_TEST_INTERVAL = 20000;
 
 const char* configPortalSsid = "ESP32-Light-Setup";
 const char* configPortalPass = "12345678";
@@ -57,6 +63,12 @@ const char* configPortalPass = "12345678";
 int currentWifiIndex = -1;
 int reconnectFailCount = 0;
 unsigned long wifiLostSince = 0;
+unsigned long lastLoopbackAt = 0;
+unsigned long lastLoopbackSentAt = 0;
+int lastLoopbackSeq = 0;
+bool loopbackAcked = true;
+unsigned long lastSelfLightTestAt = 0;
+bool selfTestLightOn = false;
 
 bool connectWiFi();
 bool reconnectWiFi();
@@ -67,6 +79,8 @@ void publishLightState(const char* source);
 void publishDeviceStatus();
 void updateOutputs();
 void printLightStatus();
+void sendLoopbackPing();
+void sendSelfLightTest();
 
 void setup() {
   Serial.begin(115200);
@@ -158,6 +172,21 @@ void loop() {
   if (now - lastDeviceUpdate >= DEVICE_UPDATE_INTERVAL) {
     lastDeviceUpdate = now;
     publishDeviceStatus();
+  }
+
+  if (ENABLE_LOOPBACK_TEST && mqttClient.connected() && now - lastLoopbackAt >= LOOPBACK_INTERVAL) {
+    lastLoopbackAt = now;
+    sendLoopbackPing();
+  }
+
+  if (ENABLE_LOOPBACK_TEST && !loopbackAcked && now - lastLoopbackSentAt > LOOPBACK_TIMEOUT) {
+    Serial.printf("[LOOPBACK] Timeout waiting ack seq=%d\n", lastLoopbackSeq);
+    loopbackAcked = true;
+  }
+
+  if (ENABLE_SELF_LIGHT_TEST && mqttClient.connected() && now - lastSelfLightTestAt >= SELF_LIGHT_TEST_INTERVAL) {
+    lastSelfLightTestAt = now;
+    sendSelfLightTest();
   }
 
   delay(10);
@@ -297,6 +326,12 @@ void connectMqtt() {
   if (mqttClient.connect(clientId.c_str())) {
     Serial.println("[MQTT] Connected");
     mqttClient.subscribe(mqttLightTopic, 1);
+    if (ENABLE_LOOPBACK_TEST) {
+      mqttClient.subscribe(mqttLoopbackTopic, 1);
+      Serial.printf("[MQTT] Subscribed: %s, %s\n", mqttLightTopic, mqttLoopbackTopic);
+    } else {
+      Serial.printf("[MQTT] Subscribed: %s\n", mqttLightTopic);
+    }
     publishDeviceStatus();
   } else {
     Serial.printf("[MQTT] Connect failed, state=%d\n", mqttClient.state());
@@ -312,6 +347,25 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   }
 
   Serial.printf("[MQTT] Message on %s: %s\n", topic, message.c_str());
+
+  if (ENABLE_LOOPBACK_TEST && String(topic) == mqttLoopbackTopic) {
+    StaticJsonDocument<256> loopDoc;
+    DeserializationError loopErr = deserializeJson(loopDoc, message);
+    if (loopErr) {
+      Serial.printf("[LOOPBACK] Parse error: %s\n", loopErr.c_str());
+      return;
+    }
+
+    String source = loopDoc["source"] | "";
+    int seq = loopDoc["seq"] | -1;
+    if (source == "esp32" && seq == lastLoopbackSeq) {
+      loopbackAcked = true;
+      Serial.printf("[LOOPBACK] ACK ok seq=%d\n", seq);
+    } else {
+      Serial.printf("[LOOPBACK] Received non-self payload source=%s seq=%d\n", source.c_str(), seq);
+    }
+    return;
+  }
 
   StaticJsonDocument<512> doc;
   DeserializationError error = deserializeJson(doc, message);
@@ -385,6 +439,48 @@ void publishDeviceStatus() {
   serializeJson(doc, body);
   mqttClient.publish(mqttDeviceTopic, body.c_str(), true);
   Serial.printf("[DEVICE] MQTT publish => %s\n", body.c_str());
+}
+
+void sendLoopbackPing() {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  lastLoopbackSeq++;
+  lastLoopbackSentAt = millis();
+  loopbackAcked = false;
+
+  StaticJsonDocument<192> doc;
+  doc["source"] = "esp32";
+  doc["seq"] = lastLoopbackSeq;
+  doc["sentAt"] = lastLoopbackSentAt;
+
+  String body;
+  serializeJson(doc, body);
+  mqttClient.publish(mqttLoopbackTopic, body.c_str(), false);
+  Serial.printf("[LOOPBACK] Publish seq=%d payload=%s\n", lastLoopbackSeq, body.c_str());
+}
+
+void sendSelfLightTest() {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  selfTestLightOn = !selfTestLightOn;
+
+  StaticJsonDocument<256> doc;
+  doc["light1"] = selfTestLightOn;
+  doc["light2"] = false;
+  doc["light3"] = false;
+  doc["light4"] = false;
+  doc["light5"] = false;
+  doc["source"] = "loopback-test";
+  doc["updatedAt"] = millis();
+
+  String body;
+  serializeJson(doc, body);
+  mqttClient.publish(mqttLightTopic, body.c_str(), true);
+  Serial.printf("[SELF-TEST] Publish light1=%s payload=%s\n", selfTestLightOn ? "ON" : "OFF", body.c_str());
 }
 
 void updateOutputs() {
