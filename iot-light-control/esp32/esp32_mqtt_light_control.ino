@@ -34,10 +34,10 @@ const int lightPins[5] = {23, 22, 21, 19, 18};
 const int relay1Pin = 26;
 const int relay2Pin = 27;
 
-#define LIGHT_ON  LOW
-#define LIGHT_OFF HIGH
-#define RELAY_ON  LOW
-#define RELAY_OFF HIGH
+#define LIGHT_ON  HIGH
+#define LIGHT_OFF LOW
+#define RELAY_ON  HIGH
+#define RELAY_OFF LOW
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
