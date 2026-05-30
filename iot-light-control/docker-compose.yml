@@ -6,8 +6,6 @@ services:
     container_name: iot-light-control-server
     ports:
       - "3099:3000"
-    volumes:
-      - ./backend:/app
     environment:
       - NODE_ENV=production
       - PORT=3000
