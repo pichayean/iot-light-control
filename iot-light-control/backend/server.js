@@ -12,11 +12,37 @@ const MQTT_LIGHT_TOPIC = process.env.MQTT_LIGHT_TOPIC || "iot-light-control/ligh
 const MQTT_DEVICE_TOPIC = process.env.MQTT_DEVICE_TOPIC || "iot-light-control/device/status";
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const LOG_LEVEL = process.env.LOG_LEVEL || "info";
+
+function log(level, message, meta = null) {
+  const levels = { error: 0, warn: 1, info: 2, debug: 3 };
+  const currentLevel = levels[LOG_LEVEL] ?? levels.info;
+  const targetLevel = levels[level] ?? levels.info;
+  if (targetLevel > currentLevel) return;
+
+  const ts = new Date().toISOString();
+  if (meta) {
+    console.log(`[${ts}] [${level.toUpperCase()}] ${message}`, meta);
+    return;
+  }
+  console.log(`[${ts}] [${level.toUpperCase()}] ${message}`);
+}
 
 app.use(cors({
   origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",").map((origin) => origin.trim()),
 }));
 app.use(express.json());
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    log("info", `HTTP ${req.method} ${req.originalUrl} -> ${res.statusCode}`, {
+      ip: req.ip,
+      userAgent: req.get("user-agent") || "-",
+      durationMs: Date.now() - startedAt,
+    });
+  });
+  next();
+});
 
 // เสิร์ฟ static frontend จากโฟลเดอร์ frontend
 app.use(express.static(path.join(__dirname, "../frontend")));
@@ -95,6 +121,7 @@ let mqttClient = null;
 
 function publishMqtt(topic, payload, options = {}) {
   if (!mqttClient || !mqttClient.connected) {
+    log("warn", "MQTT publish skipped: client not connected", { topic });
     return;
   }
 
@@ -102,6 +129,19 @@ function publishMqtt(topic, payload, options = {}) {
     qos: 1,
     retain: true,
     ...options,
+  }, (err) => {
+    if (err) {
+      log("error", "MQTT publish failed", {
+        topic,
+        error: err.message,
+      });
+      return;
+    }
+    log("info", "MQTT publish success", {
+      topic,
+      source: payload?.source || "unknown",
+      updatedAt: payload?.updatedAt || null,
+    });
   });
 }
 
@@ -125,6 +165,17 @@ function publishDeviceState(device, source = "backend") {
 function persistLightsAndBroadcast(lights, source) {
   const normalizedLights = normalizeLights(lights);
   writeNormalizedLights(normalizedLights);
+  log("info", "Lights state saved", {
+    source,
+    lights: {
+      light1: normalizedLights.light1,
+      light2: normalizedLights.light2,
+      light3: normalizedLights.light3,
+      light4: normalizedLights.light4,
+      light5: normalizedLights.light5,
+    },
+    sensorTargets: normalizedLights.sensorTargets,
+  });
   publishLightState(normalizedLights, source);
   return normalizedLights;
 }
@@ -139,6 +190,10 @@ function persistDeviceAndBroadcast(device, source) {
   };
 
   writeNormalizedLights(currentLights);
+  log("info", "Device state saved", {
+    source,
+    device: currentLights.device,
+  });
   if (source !== "mqtt") {
     publishDeviceState(currentLights.device, source);
   }
@@ -152,13 +207,16 @@ function connectMqtt() {
   });
 
   mqttClient.on("connect", () => {
-    console.log(`[MQTT] Connected to ${MQTT_URL}`);
+    log("info", `MQTT connected to ${MQTT_URL}`);
 
     mqttClient.subscribe([MQTT_LIGHT_TOPIC, MQTT_DEVICE_TOPIC], { qos: 1 }, (err) => {
       if (err) {
-        console.error("[MQTT] Subscribe failed", err);
+        log("error", "MQTT subscribe failed", { error: err.message });
         return;
       }
+      log("info", "MQTT subscribe success", {
+        topics: [MQTT_LIGHT_TOPIC, MQTT_DEVICE_TOPIC],
+      });
 
       publishLightState(readNormalizedLights(), "backend-startup");
     });
@@ -167,6 +225,7 @@ function connectMqtt() {
   mqttClient.on("message", (topic, message) => {
     try {
       const payload = JSON.parse(message.toString());
+      log("debug", "MQTT message received", { topic, payload });
 
       if (topic === MQTT_LIGHT_TOPIC) {
         const current = readNormalizedLights();
@@ -195,12 +254,22 @@ function connectMqtt() {
         }, "mqtt");
       }
     } catch (err) {
-      console.error(`[MQTT] Failed to process message from ${topic}`, err);
+      log("error", `MQTT message processing failed: ${topic}`, {
+        error: err.message,
+      });
     }
   });
 
   mqttClient.on("error", (err) => {
-    console.error("[MQTT] Client error", err.message);
+    log("error", "MQTT client error", { error: err.message });
+  });
+
+  mqttClient.on("reconnect", () => {
+    log("warn", "MQTT reconnecting...");
+  });
+
+  mqttClient.on("close", () => {
+    log("warn", "MQTT connection closed");
   });
 }
 
@@ -505,6 +574,14 @@ app.get("*", (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on ${PUBLIC_BASE_URL}`);
-  console.log(`ESP32 API: ${PUBLIC_BASE_URL}/api/lights`);
+  log("info", `Server running on ${PUBLIC_BASE_URL}`);
+  log("info", `ESP32 API: ${PUBLIC_BASE_URL}/api/lights`);
+  log("info", "Runtime config", {
+    nodeEnv: process.env.NODE_ENV || "development",
+    mqttUrl: MQTT_URL,
+    mqttLightTopic: MQTT_LIGHT_TOPIC,
+    mqttDeviceTopic: MQTT_DEVICE_TOPIC,
+    corsOrigin: CORS_ORIGIN,
+    logLevel: LOG_LEVEL,
+  });
 });

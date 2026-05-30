@@ -18,7 +18,7 @@ WiFiCredential wifiList[] = {
 const int wifiCount = sizeof(wifiList) / sizeof(wifiList[0]);
 
 // ===== MQTT Broker =====
-// IP/Public Host ของเครื่องที่รัน MQTT broker
+// เปลี่ยนเป็น IP ของเครื่องที่รัน docker compose
 const char* mqttHost = "144.126.140.118";
 const int mqttPort = 1883;
 const char* mqttLightTopic = "iot-light-control/lights/state";
@@ -33,8 +33,8 @@ const int relay2Pin = 27;
 
 #define LIGHT_ON  HIGH
 #define LIGHT_OFF LOW
-#define RELAY_ON  HIGH
-#define RELAY_OFF LOW
+#define RELAY_ON  LOW
+#define RELAY_OFF HIGH
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -57,6 +57,16 @@ const char* configPortalPass = "12345678";
 int currentWifiIndex = -1;
 int reconnectFailCount = 0;
 unsigned long wifiLostSince = 0;
+
+bool connectWiFi();
+bool reconnectWiFi();
+bool openWiFiConfigPortal();
+void connectMqtt();
+void onMqttMessage(char* topic, byte* payload, unsigned int length);
+void publishLightState(const char* source);
+void publishDeviceStatus();
+void updateOutputs();
+void printLightStatus();
 
 void setup() {
   Serial.begin(115200);
@@ -97,7 +107,6 @@ void setup() {
 
   connectMqtt();
   publishDeviceStatus();
-  publishLightState("boot");
 }
 
 void loop() {
@@ -115,7 +124,6 @@ void loop() {
         wifiLostSince = 0;
         connectMqtt();
         publishDeviceStatus();
-        publishLightState("wifi-reconnect");
       }
     }
 
@@ -125,7 +133,6 @@ void loop() {
         wifiLostSince = 0;
         connectMqtt();
         publishDeviceStatus();
-        publishLightState("wifi-portal");
       } else {
         Serial.println("[WiFi] Config portal timed out. Restarting...");
         delay(1000);
@@ -313,10 +320,20 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
+  String source = doc["source"] | "";
+  if (source == "esp32") {
+    Serial.printf("[MQTT] Ignore self/state message from source=%s\n", source.c_str());
+    return;
+  }
+
   bool changed = false;
   for (int i = 0; i < 5; i++) {
     String key = "light" + String(i + 1);
-    bool newState = doc[key] | lightStates[i];
+    if (!doc.containsKey(key)) {
+      continue;
+    }
+
+    bool newState = doc[key].as<bool>();
     if (newState != lightStates[i]) {
       changed = true;
     }
@@ -327,7 +344,10 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   printLightStatus();
 
   if (changed) {
+    Serial.println("[MQTT] Applied new light state from broker");
     publishLightState("esp32");
+  } else {
+    Serial.println("[MQTT] State unchanged (no GPIO update needed)");
   }
 }
 
