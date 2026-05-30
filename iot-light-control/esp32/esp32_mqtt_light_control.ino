@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <WiFiManager.h>
 
 struct WiFiCredential {
@@ -24,6 +25,8 @@ const int mqttPort = 1883;
 const char* mqttLightTopic = "iot-light-control/lights/state";
 const char* mqttDeviceTopic = "iot-light-control/device/status";
 const char* mqttLoopbackTopic = "iot-light-control/debug/loopback";
+const char* sensorOnUrl = "http://144.126.140.118:3099/api/lights/sensor/on";
+const char* sensorOffUrl = "http://144.126.140.118:3099/api/lights/sensor/off";
 const bool ENABLE_LOOPBACK_TEST = false;
 const bool ENABLE_SELF_LIGHT_TEST = false;
 
@@ -33,11 +36,13 @@ const int lightPins[5] = {23, 22, 21, 19, 18};
 // ===== GPIO Relay =====
 const int relay1Pin = 26;
 const int relay2Pin = 27;
+const int lightSensorPin = 34;
 
 #define LIGHT_ON  HIGH
 #define LIGHT_OFF LOW
 #define RELAY_ON  HIGH
 #define RELAY_OFF LOW
+#define DARK_STATE LOW
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -56,6 +61,7 @@ const unsigned long WIFI_PORTAL_TIMEOUT_SECONDS = 180;
 const unsigned long LOOPBACK_INTERVAL = 15000;
 const unsigned long LOOPBACK_TIMEOUT = 5000;
 const unsigned long SELF_LIGHT_TEST_INTERVAL = 20000;
+const unsigned long SENSOR_CHECK_INTERVAL = 500;
 
 const char* configPortalSsid = "ESP32-Light-Setup";
 const char* configPortalPass = "12345678";
@@ -69,6 +75,10 @@ int lastLoopbackSeq = 0;
 bool loopbackAcked = true;
 unsigned long lastSelfLightTestAt = 0;
 bool selfTestLightOn = false;
+bool isDark = false;
+bool lastSentDark = false;
+bool hasSentSensorState = false;
+unsigned long lastSensorCheck = 0;
 
 bool connectWiFi();
 bool reconnectWiFi();
@@ -81,6 +91,8 @@ void updateOutputs();
 void printLightStatus();
 void sendLoopbackPing();
 void sendSelfLightTest();
+void checkLightSensorAndSendToServer();
+void sendSensorLightsCommand(bool turnOn);
 
 void setup() {
   Serial.begin(115200);
@@ -103,6 +115,7 @@ void setup() {
   pinMode(relay2Pin, OUTPUT);
   digitalWrite(relay1Pin, RELAY_OFF);
   digitalWrite(relay2Pin, RELAY_OFF);
+  pinMode(lightSensorPin, INPUT);
 
   mqttClient.setServer(mqttHost, mqttPort);
   mqttClient.setCallback(onMqttMessage);
@@ -187,6 +200,11 @@ void loop() {
   if (ENABLE_SELF_LIGHT_TEST && mqttClient.connected() && now - lastSelfLightTestAt >= SELF_LIGHT_TEST_INTERVAL) {
     lastSelfLightTestAt = now;
     sendSelfLightTest();
+  }
+
+  if (now - lastSensorCheck >= SENSOR_CHECK_INTERVAL) {
+    lastSensorCheck = now;
+    checkLightSensorAndSendToServer();
   }
 
   delay(10);
@@ -433,12 +451,50 @@ void publishDeviceStatus() {
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
   doc["lastSeen"] = millis();
+  doc["lightSensor"] = digitalRead(lightSensorPin);
+  doc["isDark"] = isDark;
   doc["source"] = "esp32";
 
   String body;
   serializeJson(doc, body);
   mqttClient.publish(mqttDeviceTopic, body.c_str(), true);
   Serial.printf("[DEVICE] MQTT publish => %s\n", body.c_str());
+}
+
+void checkLightSensorAndSendToServer() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  int sensorState = digitalRead(lightSensorPin);
+  isDark = sensorState == DARK_STATE;
+
+  if (!hasSentSensorState || isDark != lastSentDark) {
+    hasSentSensorState = true;
+    lastSentDark = isDark;
+    Serial.printf("[SENSOR] state changed: isDark=%s\n", isDark ? "YES" : "NO");
+    sendSensorLightsCommand(!isDark);
+    publishDeviceStatus();
+  }
+}
+
+void sendSensorLightsCommand(bool turnOn) {
+  WiFiClient client;
+  HTTPClient http;
+
+  client.setTimeout(3000);
+  const char* url = turnOn ? sensorOnUrl : sensorOffUrl;
+  if (!http.begin(client, url)) {
+    Serial.println("[SENSOR->SERVER] HTTP begin failed");
+    return;
+  }
+
+  http.setTimeout(3000);
+  http.addHeader("Connection", "close");
+  int httpCode = http.POST("");
+  Serial.printf("[SENSOR->SERVER] POST %s => %d\n", turnOn ? "/api/lights/sensor/on" : "/api/lights/sensor/off", httpCode);
+  http.end();
+  client.stop();
 }
 
 void sendLoopbackPing() {
