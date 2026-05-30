@@ -1,272 +1,229 @@
 # IoT Light Control System
 
-ระบบควบคุมไฟแสดงสว่างอัตโนมัติผ่านเว็บไซต์ โดยใช้ ESP32 ควบคุม Relay 5 Channel
+ระบบควบคุมไฟ 5 ดวงด้วย ESP32, Node.js, MQTT และ Docker Compose
 
----
+## ภาพรวม
+
+โปรเจกต์นี้แยกการสื่อสารออกเป็น 2 ส่วนหลัก:
+
+- เว็บ Dashboard ใช้ REST API ของ Backend สำหรับสั่งเปิด/ปิดไฟ
+- ESP32 ใช้ MQTT subscribe สถานะไฟและ publish สถานะอุปกรณ์
+
+การออกแบบนี้ช่วยให้หน้าเว็บยังใช้งานง่าย แต่ฝั่งอุปกรณ์จริงคุยกับ backend ผ่าน MQTT แทนการ polling HTTP ตลอดเวลา
 
 ## Features
 
-- ควบคุมไฟ 5 ดวงผ่านหน้าเว็บ Dashboard
-- เปิด / ปิด / Toggle ไฟแต่ละดวงแยกกัน
-- เปิด / ปิดไฟทั้ง 5 ดวงพร้อมกันด้วยปุ่มเดียว
-- แสดงสถานะการเชื่อมต่อ Backend (Online / Offline)
-- Auto refresh สถานะทุก 2 วินาที
-- ESP32 ดึงสถานะจาก API ทุก 1 วินาทีและสั่ง Relay
+- ควบคุมไฟ 5 ดวงผ่านหน้าเว็บ
+- เปิด/ปิดไฟรายดวงและเปิด/ปิดทั้งหมด
+- ตั้งกลุ่มหลอดที่ให้ sensor ควบคุมได้
+- เก็บสถานะล่าสุดไว้ในไฟล์ JSON
+- ส่งสถานะอุปกรณ์ ESP32 ผ่าน MQTT
+- รันทั้งระบบด้วย Docker Compose ได้ในคำสั่งเดียว
 
----
+## Architecture
 
-## System Architecture
-
-```
-Website (Browser)
-     │ HTTP POST (เปิด/ปิดไฟ)
-     ▼
-Backend API (Node.js + Express)
-     │ อ่าน/เขียน
-     ▼
-lights.json (Database)
-     │ ESP32 HTTP GET ทุก 1 วินาที
-     ▼
-ESP32
-     │ GPIO Digital Write
-     ▼
+```text
+Browser Dashboard
+  │ REST API
+  ▼
+Node.js Backend (Express)
+  │ publish / subscribe
+  ▼
+Mosquitto MQTT Broker
+  │ retained light/device state
+  ▼
+ESP32 Firmware
+  │ GPIO
+  ▼
 Relay Module 5 Channel
-     │
-     ▼
-ไฟ 5 ดวง
+  │
+  ▼
+Light 1-5
 ```
 
----
+## Data Flow Diagram
+
+![Data Flow](data-flow.svg)
 
 ## Project Structure
 
-```
+```text
 iot-light-control/
 ├── backend/
-│   ├── server.js       ← Express API Server
+│   ├── server.js
 │   ├── package.json
-│   └── lights.json     ← Database ไฟล์ JSON
-│
+│   ├── package-lock.json
+│   └── lights.json
 ├── frontend/
-│   ├── index.html      ← Dashboard UI
-│   ├── style.css
-│   └── script.js
-│
+│   ├── index.html
+│   ├── script.js
+│   └── style.css
 ├── esp32/
-│   └── esp32_light_control.ino
-│
+│   ├── esp32_light_control.ino
+│   ├── esp32_light_controlnorelay.ino
+│   ├── final_home.ino
+│   └── esp32_mqtt_light_control.ino
+├── mqtt/
+│   └── mosquitto.conf
+├── docker-compose.yml
 └── README.md
 ```
 
----
+## Requirements
 
-## Hardware Required
+- Docker และ Docker Compose
+- Node.js 18+ ถ้าจะรัน backend แบบ local
+- Arduino IDE หรือ PlatformIO สำหรับอัปโหลดโค้ด ESP32
+- ESP32 Development Board
+- Relay Module 5 Channel
+- LED หรือโหลดจริงสำหรับทดสอบ
 
-| อุปกรณ์                  | จำนวน |
-|--------------------------|-------|
-| ESP32 Development Board  | 1     |
-| Relay Module 5 Channel   | 1     |
-| LED (จำลองไฟ)            | 5     |
-| Resistor 220Ω            | 5     |
-| สาย Jumper               | ตามต้องการ |
-| Breadboard               | 1     |
+## Run With Docker Compose
 
----
+รันคำสั่งนี้จากโฟลเดอร์โปรเจกต์หลัก:
 
-## Wiring Table
-
-| Relay Module | ESP32 GPIO |
-|-------------|------------|
-| IN1         | GPIO 23    |
-| IN2         | GPIO 22    |
-| IN3         | GPIO 21    |
-| IN4         | GPIO 19    |
-| IN5         | GPIO 18    |
-| VCC         | 5V         |
-| GND         | GND (ร่วมกัน) |
-
-> **สำคัญ:** GND ของ ESP32 และ GND ของ Relay Module ต้องต่อเข้าหากัน (Common GND)
-
----
-
-## API Documentation
-
-### GET /api/lights
-ดึงสถานะไฟทั้งหมด
-
-**Response:**
-```json
-{
-  "light1": false,
-  "light2": true,
-  "light3": false,
-  "light4": false,
-  "light5": false
-}
+```bash
+docker compose up --build
 ```
 
----
+บริการที่เปิดขึ้นมาจะมี:
 
-### GET /api/lights/:id
-ดึงสถานะไฟดวงเดียว (`id` = 1–5)
+- Backend: http://localhost:3099
+- MQTT Broker: tcp://localhost:1883
 
-**Response:**
-```json
-{ "success": true, "id": 1, "state": true }
-```
+หมายเหตุ: ใน Docker Compose โปรเจกต์นี้ map พอร์ต backend ออกเป็น `3099` ไม่ใช่ `3000`
 
----
+## Run Backend Locally
 
-### POST /api/lights/:id/:state
-เปิด/ปิดไฟดวงเดียว (`id` = 1–5, `state` = `on` หรือ `off`)
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Light 1 turned on",
-  "lights": {
-    "light1": true,
-    "light2": false,
-    "light3": false,
-    "light4": false,
-    "light5": false
-  }
-}
-```
-
----
-
-### POST /api/lights/all/:state
-เปิด/ปิดไฟทั้งหมด (`state` = `on` หรือ `off`)
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "All lights turned on",
-  "lights": {
-    "light1": true,
-    "light2": true,
-    "light3": true,
-    "light4": true,
-    "light5": true
-  }
-}
-```
-
----
-
-## วิธีติดตั้ง Backend
-
-### 1. ติดตั้ง Node.js
-ดาวน์โหลด Node.js จาก https://nodejs.org (แนะนำ LTS)
-
-### 2. ติดตั้ง Dependencies
+ถ้าต้องการรัน backend แยกจาก Docker:
 
 ```bash
 cd backend
 npm install
-```
-
----
-
-## วิธี Run Server
-
-```bash
-cd backend
 npm start
 ```
 
-ถ้าสำเร็จจะแสดง:
-```
-Server running on http://localhost:3000
-```
+โดยค่าเริ่มต้น backend จะฟังที่พอร์ต `3000`
 
----
+ถ้าจะให้ backend ต่อ broker อื่น ให้ตั้งค่า environment เพิ่ม:
 
-## วิธีเปิด Website
-
-เปิด Browser แล้วไปที่:
-```
-http://localhost:3000
+```bash
+MQTT_URL=mqtt://localhost:1883
+MQTT_LIGHT_TOPIC=iot-light-control/lights/state
+MQTT_DEVICE_TOPIC=iot-light-control/device/status
 ```
 
-หรือถ้าต้องการให้ ESP32 เข้าถึงได้ด้วย ให้ใช้ IP ของเครื่อง:
-```
-http://192.168.x.x:3000
-```
+## Open Dashboard
 
-(ดู IP ของเครื่องได้ด้วยคำสั่ง `ipconfig` บน Windows หรือ `ifconfig` บน Mac/Linux)
+- ถ้ารันผ่าน Docker Compose: http://localhost:3099
+- ถ้ารัน backend แบบ local: http://localhost:3000
 
----
+## ESP32 Setup
 
-## วิธีตั้งค่า ESP32
-
-แก้ไขไฟล์ `esp32/esp32_light_control.ino` บรรทัดนี้:
+เปิดไฟล์ [esp32/esp32_mqtt_light_control.ino](esp32/esp32_mqtt_light_control.ino) แล้วแก้ค่าเหล่านี้:
 
 ```cpp
-const char* ssid     = "YOUR_WIFI_NAME";      // ชื่อ Wi-Fi
-const char* password = "YOUR_WIFI_PASSWORD";  // รหัส Wi-Fi
-const char* serverUrl = "http://192.168.x.x:3000/api/lights";  // IP ของเครื่องที่รัน Backend
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* mqttHost = "192.168.x.x";
 ```
 
-> **ห้ามใช้ `localhost`** — ในมุมมองของ ESP32, `localhost` หมายถึงตัว ESP32 เอง
+`mqttHost` ต้องเป็น IP ของเครื่องที่รัน Docker Compose หรือ broker จริง ห้ามใช้ `localhost`
 
----
-
-## วิธี Upload โค้ดเข้า ESP32
+## Upload Steps
 
 1. เปิด Arduino IDE
-2. เปิดไฟล์ `esp32_light_control.ino`
-3. ติดตั้ง Library ที่จำเป็น ผ่าน Library Manager:
-   - `ArduinoJson` by Benoit Blanchon
-4. เลือก Board: **ESP32 Dev Module** (Tools → Board)
-5. เลือก Port ที่ ESP32 เชื่อมต่ออยู่
-6. กด **Upload**
-7. เปิด Serial Monitor (baud rate: 115200) เพื่อดู log
+2. เปิดไฟล์ [esp32/esp32_mqtt_light_control.ino](esp32/esp32_mqtt_light_control.ino)
+3. ติดตั้ง library ที่โค้ดต้องใช้ถ้ายังไม่มี
+4. เลือก Board เป็น ESP32 Dev Module
+5. เลือก Port ที่เชื่อมกับบอร์ด
+6. กด Upload
+7. เปิด Serial Monitor ที่ baud rate 115200
 
----
+## Wiring
 
-## วิธีทดสอบระบบ
+| Relay Module | ESP32 GPIO |
+| --- | --- |
+| IN1 | GPIO 23 |
+| IN2 | GPIO 22 |
+| IN3 | GPIO 21 |
+| IN4 | GPIO 19 |
+| IN5 | GPIO 18 |
+| VCC | 5V |
+| GND | GND |
 
-1. รัน `npm start` ใน folder `backend`
-2. เปิด Browser ไปที่ `http://localhost:3000`
-3. กดปุ่ม "เปิด" บนไฟดวงใดก็ได้ แล้วตรวจสอบว่า:
-   - สถานะบนเว็บเปลี่ยนเป็น **ON** (สีเขียว)
-4. Upload โค้ดเข้า ESP32 แล้วเปิด Serial Monitor ตรวจสอบ:
-   - แสดง `Connected! IP: ...`
-   - แสดง payload JSON ทุก 1 วินาที
-   - Relay ทำงานตรงกับสถานะบนเว็บ
+ต้องต่อ GND ของ ESP32 และ Relay ร่วมกัน
 
----
+## MQTT Topics
 
-## ปัญหาที่พบบ่อย
+Backend และ ESP32 ใช้ topic หลัก 2 ตัว:
 
-| ปัญหา | วิธีแก้ |
-|-------|---------|
-| ESP32 ต่อ Wi-Fi ไม่ได้ | ตรวจสอบ ssid/password ในโค้ด |
-| ESP32 เรียก API ไม่สำเร็จ | ตรวจสอบว่าใส่ IP จริง ไม่ใช่ localhost |
-| Port 3000 เข้าไม่ได้ | ปิด Firewall ชั่วคราว หรือเพิ่ม Exception สำหรับ Port 3000 |
-| Relay ทำงานกลับกัน | Relay เป็น Active LOW — LOW = เปิด, HIGH = ปิด (ถูกต้องแล้ว) |
-| เว็บขึ้น "Backend Offline" | ตรวจสอบว่า Backend รันอยู่ และ URL ถูกต้อง |
-| GND ไม่ร่วมกัน | ต่อ GND ของ ESP32 กับ GND ของ Relay Module เข้าด้วยกัน |
+- `iot-light-control/lights/state`
+- `iot-light-control/device/status`
 
----
+แนวทาง payload โดยสรุป:
 
-## แนวทางพัฒนาต่อ
+- lights state: `light1` ถึง `light5`, `sensorTargets`, `source`, `updatedAt`
+- device status: `ssid`, `ip`, `rssi`, `lastSeen`, `lightSensor`, `isDark`, `source`, `updatedAt`
 
-- เพิ่ม Scheduler — ตั้งเวลาเปิด/ปิดไฟอัตโนมัติ
-- เพิ่ม Light Sensor — เปิดไฟเมื่อแสงน้อย
-- เพิ่ม Authentication — Login ก่อนใช้งาน
-- เปลี่ยน Database จาก JSON เป็น SQLite หรือ MongoDB
-- Deploy Backend ขึ้น Cloud เช่น Railway, Render
-- เพิ่ม WebSocket เพื่อ Real-time Update แทน Polling
+## API
 
----
+### GET /api/lights
+ดึงสถานะไฟทั้งหมดรวม device status และ sensor config
 
-## ข้อควรระวัง
+### GET /api/lights/:id
+ดึงสถานะไฟดวงที่ `1-5`
 
-- สำหรับโครงงานนักศึกษา แนะนำใช้ **LED จำลอง** แทนไฟบ้าน 220V
-- หากต้องการใช้กับไฟบ้าน **ต้องให้ผู้เชี่ยวชาญด้านไฟฟ้าดูแล** เนื่องจากมีอันตรายถึงชีวิต
-- ESP32 จ่ายไฟได้ 3.3V — หาก Relay ต้องการ 5V ให้ใช้ไฟเลี้ยงแยก
+### POST /api/lights/:id/:state
+เปิดหรือปิดไฟดวงเดียว
+
+### POST /api/lights/all/:state
+เปิดหรือปิดไฟทั้งหมด
+
+### POST /api/lights/sensor-config
+กำหนดหลอดที่ให้ sensor ควบคุม โดยส่ง `{ "sensorTargets": [1,2] }`
+
+### GET /api/lights/sensor-config
+ดูรายการหลอดที่ผูกกับ sensor
+
+### POST /api/lights/sensor/:state
+ESP32 ใช้สั่งไฟของหลอดที่อยู่ใน sensorTargets เป็น `on` หรือ `off`
+
+### POST /api/device
+อัปเดตสถานะอุปกรณ์ ESP32
+
+### GET /api/device
+ดึงสถานะอุปกรณ์ ESP32 ล่าสุด
+
+## Test Flow
+
+1. รัน `docker compose up --build`
+2. เปิด Dashboard ที่ `http://localhost:3099`
+3. กดเปิด/ปิดไฟจากหน้าเว็บ
+4. ตรวจสอบว่า `lights.json` เปลี่ยนตาม
+5. อัปโหลด ESP32 sketch แบบ MQTT แล้วดู Serial Monitor ว่าต่อ Wi-Fi และ MQTT ได้
+6. ตรวจสอบว่า relay สลับตามสถานะไฟในหน้าเว็บ
+
+## Troubleshooting
+
+| ปัญหา | วิธีตรวจสอบ |
+| --- | --- |
+| Dashboard เปิดไม่ได้ | เช็กว่า compose รันอยู่ และเข้า `http://localhost:3099` |
+| ESP32 ต่อ broker ไม่ได้ | ตรวจสอบ `mqttHost` และพอร์ต `1883` |
+| ไฟไม่เปลี่ยนตามหน้าเว็บ | ดู log backend และตรวจสอบว่า ESP32 subscribe topic ถูกต้อง |
+| สถานะ device ไม่ขึ้น | ตรวจสอบว่า ESP32 publish ไปที่ `iot-light-control/device/status` |
+| Relay ทำงานกลับด้าน | Relay ส่วนใหญ่เป็น Active LOW |
+| GND ไม่ตรงกัน | ต่อ GND ของ ESP32 กับ Relay ให้ร่วมกัน |
+
+## Notes
+
+- โค้ด backend ยังคงใช้ REST สำหรับหน้าเว็บ เพื่อให้ใช้งานง่ายและไม่กระทบ UI เดิม
+- MQTT ใช้กับ backend ↔ ESP32
+- ถ้าจะต่อกับไฟบ้านจริง ควรให้ผู้เชี่ยวชาญดูแลเรื่องความปลอดภัยไฟฟ้า
+
+## Next Ideas
+
+- เพิ่ม login/authentication
+- เพิ่ม scheduling เปิด/ปิดอัตโนมัติ
+- ย้าย persistence จาก JSON ไป SQLite
+- เพิ่ม WebSocket สำหรับ real-time UI

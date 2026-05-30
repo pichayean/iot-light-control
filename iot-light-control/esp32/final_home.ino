@@ -8,11 +8,9 @@ struct WiFiCredential {
 };
 
 WiFiCredential wifiList[] = {
-  {"Home_2.4G", "asdf1234"},
+  {"FakeHotspots", "P@ssw0rdasdf"},
   {"home88_53_2.4G", "P@ssw0rdasdf"},
-  {"MasterShifu", "@12345678"},
-  {"WiFi_สำรอง_2", "password2"},
-  {"Hotspot_Phone", "password3"}
+  {"MasterShifu", "@12345678"}
 };
 
 const int wifiCount = sizeof(wifiList) / sizeof(wifiList[0]);
@@ -20,6 +18,11 @@ const int wifiCount = sizeof(wifiList) / sizeof(wifiList[0]);
 // ===== Backend =====
 const char* serverUrl = "http://144.126.140.118:3099/api/lights";
 const char* deviceUrl = "http://144.126.140.118:3099/api/device";
+
+// สำคัญ: ใช้ endpoint sensor ไม่ใช่ all
+// Backend จะเปิด/ปิดเฉพาะหลอดที่เลือกไว้ใน sensorTargets
+const char* sensorOnUrl  = "http://144.126.140.118:3099/api/lights/sensor/on";
+const char* sensorOffUrl = "http://144.126.140.118:3099/api/lights/sensor/off";
 
 // ===== GPIO ไฟ 5 ดวง =====
 const int lightPins[5] = {23, 22, 21, 19, 18};
@@ -29,6 +32,11 @@ const int lightPins[5] = {23, 22, 21, 19, 18};
 // Relay 2 ทำงานตาม Light 2
 const int relay1Pin = 26;
 const int relay2Pin = 27;
+
+// ===== GPIO Sensor แสง =====
+// ต่อ DO จาก sensor แสง -> GPIO34
+// Sensor: DO / GND / VCC
+const int lightSensorPin = 34;
 
 // ===== Logic ไฟ =====
 #define LIGHT_ON  HIGH
@@ -41,16 +49,29 @@ const int relay2Pin = 27;
 #define RELAY_ON  HIGH
 #define RELAY_OFF LOW
 
+// ===== Logic Sensor แสง =====
+// ส่วนใหญ่ sensor DO:
+// มืด = HIGH, สว่าง = LOW
+// ถ้าลองแล้วกลับด้าน ให้เปลี่ยนเป็น LOW
+#define DARK_STATE HIGH
+
 bool lightStates[5] = {false, false, false, false, false};
+
+// ===== Sensor State =====
+bool isDark = false;
+bool lastSentDark = false;
+bool hasSentSensorState = false;
 
 // ===== Timing =====
 unsigned long lastDeviceUpdate = 0;
 unsigned long lastLightFetch = 0;
 unsigned long lastReconnectTry = 0;
+unsigned long lastSensorCheck = 0;
 
 const unsigned long DEVICE_UPDATE_INTERVAL = 120000; // ส่ง device ทุก 120 วิ
-const unsigned long LIGHT_FETCH_INTERVAL = 2000;     // ดึงสถานะไฟทุก 3 วิ
+const unsigned long LIGHT_FETCH_INTERVAL = 2000;     // ดึงสถานะไฟทุก 2 วิ
 const unsigned long RECONNECT_INTERVAL = 20000;      // ถ้าหลุด ลอง reconnect ทุก 20 วิ
+const unsigned long SENSOR_CHECK_INTERVAL = 500;     // เช็ก sensor ทุก 0.5 วิ
 
 // ===== Wi-Fi reconnect state =====
 int currentWifiIndex = -1;
@@ -81,12 +102,21 @@ void setup() {
   digitalWrite(relay1Pin, RELAY_OFF);
   digitalWrite(relay2Pin, RELAY_OFF);
 
+  // ตั้งค่า Sensor แสง
+  pinMode(lightSensorPin, INPUT);
+
   connectWiFi();
 
   // ส่ง device status ครั้งแรกหลังต่อ Wi-Fi สำเร็จ
   if (WiFi.status() == WL_CONNECTED) {
     sendDeviceStatus();
     lastDeviceUpdate = millis();
+
+    // ดึงสถานะไฟล่าสุดก่อน
+    fetchLightStatus();
+
+    // อ่าน sensor แล้วส่งสถานะแรกไป server
+    checkLightSensorAndSendToServer();
   }
 }
 
@@ -104,6 +134,13 @@ void loop() {
     return;
   }
 
+  // เช็ก sensor แล้วส่งคำสั่งไป server เฉพาะตอนเปลี่ยน มืด/สว่าง
+  if (now - lastSensorCheck >= SENSOR_CHECK_INTERVAL) {
+    lastSensorCheck = now;
+    checkLightSensorAndSendToServer();
+  }
+
+  // ดึงสถานะไฟจาก server เพื่อ sync กับหน้าเว็บ
   if (now - lastLightFetch >= LIGHT_FETCH_INTERVAL) {
     lastLightFetch = now;
     fetchLightStatus();
@@ -115,6 +152,79 @@ void loop() {
   }
 
   delay(10);
+}
+
+void checkLightSensorAndSendToServer() {
+  int sensorState = digitalRead(lightSensorPin);
+  isDark = sensorState == DARK_STATE;
+
+  Serial.printf(
+    "[SENSOR] DO GPIO %d = %d | isDark = %s\n",
+    lightSensorPin,
+    sensorState,
+    isDark ? "YES" : "NO"
+  );
+
+  // ส่งครั้งแรก หรือส่งเมื่อสถานะเปลี่ยนจาก มืด <-> สว่าง
+  if (!hasSentSensorState || isDark != lastSentDark) {
+    hasSentSensorState = true;
+    lastSentDark = isDark;
+
+    if (isDark) {
+      Serial.println("[SENSOR] Dark detected -> Send SENSOR ON to server");
+      sendSensorLightsCommand(true);
+    } else {
+      Serial.println("[SENSOR] Bright detected -> Send SENSOR OFF to server");
+      sendSensorLightsCommand(false);
+    }
+  }
+}
+
+void sendSensorLightsCommand(bool turnOn) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  WiFiClient client;
+  HTTPClient http;
+
+  client.setTimeout(3000);
+
+  // สำคัญ: ยิง sensor endpoint
+  const char* url = turnOn ? sensorOnUrl : sensorOffUrl;
+
+  if (!http.begin(client, url)) {
+    Serial.println("[SENSOR->SERVER] HTTP begin failed");
+    client.stop();
+    delay(30);
+    return;
+  }
+
+  http.setTimeout(3000);
+  http.setReuse(false);
+  http.useHTTP10(true);
+  http.addHeader("Connection", "close");
+
+  int httpCode = http.POST("");
+
+  Serial.printf(
+    "[SENSOR->SERVER] POST %s => %d\n",
+    turnOn ? "/api/lights/sensor/on" : "/api/lights/sensor/off",
+    httpCode
+  );
+
+  if (httpCode > 0) {
+    String response = http.getString();
+    Serial.printf("[SENSOR->SERVER] Response: %s\n", response.c_str());
+  } else {
+    Serial.printf("[SENSOR->SERVER] POST failed, code: %d\n", httpCode);
+  }
+
+  closeHttp(http, client);
+
+  // ดึงสถานะจริงจาก server กลับมา
+  // เพราะ backend จะเปิด/ปิดเฉพาะ sensorTargets ไม่ใช่ทุกดวง
+  fetchLightStatus();
 }
 
 void connectWiFi() {
@@ -193,6 +303,12 @@ void reconnectWiFi() {
       sendDeviceStatus();
       lastDeviceUpdate = millis();
 
+      fetchLightStatus();
+
+      // หลัง reconnect ให้ส่งสถานะ sensor ปัจจุบันไป server อีกครั้ง
+      hasSentSensorState = false;
+      checkLightSensorAndSendToServer();
+
       return;
     }
 
@@ -250,7 +366,7 @@ void fetchLightStatus() {
     String payload = http.getString();
     Serial.printf("[HTTP] Payload: %s\n", payload.c_str());
 
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<1024> doc;
     DeserializationError error = deserializeJson(doc, payload);
 
     if (error) {
@@ -272,7 +388,7 @@ void fetchLightStatus() {
 }
 
 void updateOutputs() {
-  // ไฟ 5 ดวงเดิม
+  // ไฟ 5 ดวงตาม backend
   for (int i = 0; i < 5; i++) {
     digitalWrite(lightPins[i], lightStates[i] ? LIGHT_ON : LIGHT_OFF);
   }
@@ -308,6 +424,12 @@ void printLightStatus() {
     lightStates[1] ? "ON" : "OFF"
   );
 
+  Serial.printf(
+    "[STATUS] Sensor GPIO %d isDark: %s\n",
+    lightSensorPin,
+    isDark ? "YES" : "NO"
+  );
+
   Serial.println("[STATUS] --------------------------------");
 }
 
@@ -338,6 +460,10 @@ void sendDeviceStatus() {
   doc["ssid"] = WiFi.SSID();
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
+
+  // เพิ่มข้อมูล sensor ไปด้วย เผื่อ web/backend เอาไปโชว์ต่อ
+  doc["lightSensor"] = digitalRead(lightSensorPin);
+  doc["isDark"] = isDark;
 
   String body;
   serializeJson(doc, body);

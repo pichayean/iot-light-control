@@ -4,5 +4,16 @@
   "light3": true,
   "light4": true,
   "light5": true,
-  "sensorTargets": [1, 2]
+  "sensorTargets": [
+    1,
+    2
+  ],
+  "device": {
+    "ssid": "",
+    "ip": "",
+    "rssi": 0,
+    "lastSeen": "",
+    "lightSensor": null,
+    "isDark": null
+  }
 }

@@ -1,5 +1,5 @@
 services:
-  iot-light-control:
+  backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -10,4 +10,24 @@ services:
       - ./backend:/app
     environment:
       - NODE_ENV=production
+      - MQTT_URL=mqtt://mosquitto:1883
+      - MQTT_LIGHT_TOPIC=iot-light-control/lights/state
+      - MQTT_DEVICE_TOPIC=iot-light-control/device/status
+    depends_on:
+      - mosquitto
     restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: iot-light-control-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:

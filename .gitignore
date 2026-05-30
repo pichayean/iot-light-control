@@ -1,1 +1,17 @@
+# Backend runtime/state
 iot-light-control/backend/lights.json
+
+# Backend dependencies
+iot-light-control/backend/node_modules/
+
+# Backend environment files
+iot-light-control/backend/.env
+iot-light-control/backend/.env.*
+!iot-light-control/backend/.env.example
+
+# Backend logs
+iot-light-control/backend/*.log
+iot-light-control/backend/npm-debug.log*
+iot-light-control/backend/yarn-debug.log*
+iot-light-control/backend/yarn-error.log*
+iot-light-control/backend/pnpm-debug.log*

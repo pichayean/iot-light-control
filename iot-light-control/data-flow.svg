@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,3 L0,6 Z" fill="#1f2937"/>
+    </marker>
+    <style>
+      .title { font: 700 28px 'Segoe UI', Arial, sans-serif; fill:#111827; }
+      .subtitle { font: 500 14px 'Segoe UI', Arial, sans-serif; fill:#4b5563; }
+      .node-title { font: 700 15px 'Segoe UI', Arial, sans-serif; fill:#111827; }
+      .node-text { font: 500 12px 'Segoe UI', Arial, sans-serif; fill:#374151; }
+      .edge { stroke:#1f2937; stroke-width:2.2; fill:none; marker-end:url(#arrow); }
+      .edge-dash { stroke:#6b7280; stroke-width:2; fill:none; stroke-dasharray:7 6; marker-end:url(#arrow); }
+      .edge-label { font: 600 12px 'Segoe UI', Arial, sans-serif; fill:#111827; }
+      .group { fill:#f9fafb; stroke:#d1d5db; stroke-width:1.5; rx:16; }
+      .box { fill:white; stroke:#9ca3af; stroke-width:1.5; rx:12; }
+      .box-blue { fill:#eff6ff; stroke:#60a5fa; stroke-width:1.8; rx:12; }
+      .box-green { fill:#ecfdf5; stroke:#34d399; stroke-width:1.8; rx:12; }
+      .box-orange { fill:#fff7ed; stroke:#fb923c; stroke-width:1.8; rx:12; }
+      .box-purple { fill:#f5f3ff; stroke:#a78bfa; stroke-width:1.8; rx:12; }
+      .box-gray { fill:#f3f4f6; stroke:#9ca3af; stroke-width:1.8; rx:12; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="760" fill="#ffffff"/>
+
+  <text x="40" y="48" class="title">IoT Light Control - Current Data Flow</text>
+  <text x="40" y="74" class="subtitle">REST for dashboard, MQTT for backend-device communication, JSON persistence in backend</text>
+
+  <rect x="30" y="95" width="1140" height="625" class="group"/>
+  <text x="50" y="120" class="subtitle">Docker network + local clients</text>
+
+  <rect x="70" y="170" width="240" height="120" class="box-blue"/>
+  <text x="90" y="200" class="node-title">Browser Dashboard</text>
+  <text x="90" y="222" class="node-text">Frontend UI</text>
+  <text x="90" y="240" class="node-text">Open: localhost:3099</text>
+  <text x="90" y="258" class="node-text">Control + Status view</text>
+
+  <rect x="400" y="150" width="290" height="170" class="box-green"/>
+  <text x="420" y="182" class="node-title">Node.js Backend (Express)</text>
+  <text x="420" y="204" class="node-text">Container: iot-light-control-server</text>
+  <text x="420" y="222" class="node-text">Port map: 3099 -> 3000</text>
+  <text x="420" y="240" class="node-text">REST API + MQTT bridge</text>
+  <text x="420" y="258" class="node-text">Publishes retained light/device state</text>
+  <text x="420" y="276" class="node-text">Consumes MQTT updates</text>
+
+  <rect x="790" y="150" width="300" height="170" class="box-orange"/>
+  <text x="810" y="182" class="node-title">Eclipse Mosquitto Broker</text>
+  <text x="810" y="204" class="node-text">Container: iot-light-control-mqtt</text>
+  <text x="810" y="222" class="node-text">Port: 1883</text>
+  <text x="810" y="240" class="node-text">Topics:</text>
+  <text x="810" y="258" class="node-text">- iot-light-control/lights/state</text>
+  <text x="810" y="276" class="node-text">- iot-light-control/device/status</text>
+
+  <rect x="790" y="410" width="300" height="180" class="box-purple"/>
+  <text x="810" y="442" class="node-title">ESP32 Firmware</text>
+  <text x="810" y="464" class="node-text">Subscribes light state topic</text>
+  <text x="810" y="482" class="node-text">Publishes device status topic</text>
+  <text x="810" y="500" class="node-text">Applies GPIO output to relay</text>
+  <text x="810" y="518" class="node-text">Reports Wi-Fi / RSSI / sensor state</text>
+
+  <rect x="400" y="460" width="290" height="130" class="box-gray"/>
+  <text x="420" y="492" class="node-title">Relay Module + Lights 1-5</text>
+  <text x="420" y="514" class="node-text">Physical output state</text>
+  <text x="420" y="532" class="node-text">Driven by ESP32 GPIO</text>
+
+  <rect x="120" y="450" width="230" height="120" class="box"/>
+  <text x="140" y="482" class="node-title">lights.json</text>
+  <text x="140" y="504" class="node-text">State persistence</text>
+  <text x="140" y="522" class="node-text">light1..light5</text>
+  <text x="140" y="540" class="node-text">sensorTargets + device data</text>
+
+  <path class="edge" d="M310 210 L400 210"/>
+  <path class="edge" d="M400 245 L310 245"/>
+  <text x="325" y="200" class="edge-label">REST GET/POST</text>
+  <text x="320" y="267" class="edge-label">JSON responses</text>
+
+  <path class="edge" d="M690 205 L790 205"/>
+  <path class="edge" d="M790 245 L690 245"/>
+  <text x="705" y="194" class="edge-label">Publish light/device state</text>
+  <text x="707" y="267" class="edge-label">Subscribe topic updates</text>
+
+  <path class="edge" d="M940 320 L940 410"/>
+  <path class="edge" d="M985 410 L985 320"/>
+  <text x="1000" y="370" class="edge-label">Sub: lights/state</text>
+  <text x="1000" y="394" class="edge-label">Pub: device/status</text>
+
+  <path class="edge" d="M790 520 L690 520"/>
+  <text x="705" y="512" class="edge-label">GPIO control</text>
+
+  <path class="edge" d="M400 300 L300 450"/>
+  <path class="edge" d="M300 520 L400 280"/>
+  <text x="298" y="360" class="edge-label">Read state</text>
+  <text x="295" y="430" class="edge-label">Write state</text>
+
+  <path class="edge-dash" d="M830 410 C760 360, 640 340, 560 320"/>
+  <text x="620" y="350" class="edge-label">Optional REST /api/device</text>
+
+  <rect x="60" y="620" width="1080" height="80" class="group"/>
+  <text x="80" y="648" class="node-text">Flow summary: Dashboard controls go via REST to Backend. Backend persists state in lights.json and broadcasts via MQTT.</text>
+  <text x="80" y="670" class="node-text">ESP32 listens for light changes from MQTT and reports device/sensor status back through MQTT device topic.</text>
+</svg>

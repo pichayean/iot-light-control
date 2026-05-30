@@ -3,6 +3,7 @@ const API_BASE = "/api/lights";
 let autoRefreshInterval = null;
 let isLoading = false;
 let sensorTargets = [];
+const HIDDEN_LIGHT_IDS = [2];
 
 async function loadLights() {
   // ป้องกัน fetch ซ้อนกันระหว่าง setInterval กับ setLight/setAllLights
@@ -37,6 +38,10 @@ function renderLights(lights) {
   grid.innerHTML = "";
 
   for (let i = 1; i <= 5; i++) {
+    if (HIDDEN_LIGHT_IDS.includes(i)) {
+      continue;
+    }
+
     const isOn = lights[`light${i}`];
     const useSensor = sensorTargets.includes(i);
 
@@ -83,7 +88,11 @@ function renderSensorInfo() {
   const sensorInfo = document.getElementById("sensorInfo");
   if (!sensorInfo) return;
 
-  if (!sensorTargets.length) {
+  const visibleSensorTargets = sensorTargets.filter(
+    (id) => !HIDDEN_LIGHT_IDS.includes(id)
+  );
+
+  if (!visibleSensorTargets.length) {
     sensorInfo.innerHTML = `
       <div class="sensor-card">
         <span class="sensor-label">Sensor แสง:</span>
@@ -97,7 +106,7 @@ function renderSensorInfo() {
     <div class="sensor-card active">
       <span class="sensor-label">Sensor แสงควบคุม:</span>
       <span class="sensor-value">
-        หลอด ${sensorTargets.join(", ")}
+        หลอด ${visibleSensorTargets.join(", ")}
       </span>
     </div>
   `;

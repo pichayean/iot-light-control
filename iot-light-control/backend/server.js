@@ -2,10 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const mqtt = require("mqtt");
 
 const app = express();
 const PORT = 3000;
 const DB_FILE = path.join(__dirname, "lights.json");
+const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
+const MQTT_LIGHT_TOPIC = process.env.MQTT_LIGHT_TOPIC || "iot-light-control/lights/state";
+const MQTT_DEVICE_TOPIC = process.env.MQTT_DEVICE_TOPIC || "iot-light-control/device/status";
 
 app.use(cors());
 app.use(express.json());
@@ -63,22 +67,143 @@ function normalizeSensorTargets(targets) {
   )].sort((a, b) => a - b);
 }
 
+function normalizeLights(lights = {}) {
+  return {
+    ...DEFAULT_LIGHTS,
+    ...lights,
+    sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
+    device: {
+      ...DEFAULT_LIGHTS.device,
+      ...(lights.device || {}),
+    },
+  };
+}
+
+function readNormalizedLights() {
+  return normalizeLights(readLights());
+}
+
+function writeNormalizedLights(lights) {
+  writeLights(normalizeLights(lights));
+}
+
+let mqttClient = null;
+
+function publishMqtt(topic, payload, options = {}) {
+  if (!mqttClient || !mqttClient.connected) {
+    return;
+  }
+
+  mqttClient.publish(topic, JSON.stringify(payload), {
+    qos: 1,
+    retain: true,
+    ...options,
+  });
+}
+
+function publishLightState(lights, source = "backend") {
+  publishMqtt(MQTT_LIGHT_TOPIC, {
+    ...normalizeLights(lights),
+    source,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function publishDeviceState(device, source = "backend") {
+  publishMqtt(MQTT_DEVICE_TOPIC, {
+    ...DEFAULT_LIGHTS.device,
+    ...(device || {}),
+    source,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function persistLightsAndBroadcast(lights, source) {
+  const normalizedLights = normalizeLights(lights);
+  writeNormalizedLights(normalizedLights);
+  publishLightState(normalizedLights, source);
+  return normalizedLights;
+}
+
+function persistDeviceAndBroadcast(device, source) {
+  const currentLights = readNormalizedLights();
+
+  currentLights.device = {
+    ...DEFAULT_LIGHTS.device,
+    ...(device || {}),
+    lastSeen: typeof device?.lastSeen === "string" ? device.lastSeen : new Date().toISOString(),
+  };
+
+  writeNormalizedLights(currentLights);
+  if (source !== "mqtt") {
+    publishDeviceState(currentLights.device, source);
+  }
+  return currentLights.device;
+}
+
+function connectMqtt() {
+  mqttClient = mqtt.connect(MQTT_URL, {
+    clientId: `iot-light-control-backend-${Math.random().toString(16).slice(2, 10)}`,
+    reconnectPeriod: 5000,
+  });
+
+  mqttClient.on("connect", () => {
+    console.log(`[MQTT] Connected to ${MQTT_URL}`);
+
+    mqttClient.subscribe([MQTT_LIGHT_TOPIC, MQTT_DEVICE_TOPIC], { qos: 1 }, (err) => {
+      if (err) {
+        console.error("[MQTT] Subscribe failed", err);
+        return;
+      }
+
+      publishLightState(readNormalizedLights(), "backend-startup");
+    });
+  });
+
+  mqttClient.on("message", (topic, message) => {
+    try {
+      const payload = JSON.parse(message.toString());
+
+      if (topic === MQTT_LIGHT_TOPIC) {
+        const current = readNormalizedLights();
+        const nextLights = normalizeLights({
+          ...current,
+          light1: Boolean(payload.light1),
+          light2: Boolean(payload.light2),
+          light3: Boolean(payload.light3),
+          light4: Boolean(payload.light4),
+          light5: Boolean(payload.light5),
+          sensorTargets: Array.isArray(payload.sensorTargets) ? payload.sensorTargets : current.sensorTargets,
+        });
+
+        writeNormalizedLights(nextLights);
+        return;
+      }
+
+      if (topic === MQTT_DEVICE_TOPIC) {
+        persistDeviceAndBroadcast({
+          ssid: typeof payload.ssid === "string" ? payload.ssid : "",
+          ip: typeof payload.ip === "string" ? payload.ip : "",
+          rssi: typeof payload.rssi === "number" ? payload.rssi : 0,
+          lastSeen: typeof payload.lastSeen === "string" ? payload.lastSeen : new Date().toISOString(),
+          lightSensor: typeof payload.lightSensor === "number" ? payload.lightSensor : null,
+          isDark: typeof payload.isDark === "boolean" ? payload.isDark : null,
+        }, "mqtt");
+      }
+    } catch (err) {
+      console.error(`[MQTT] Failed to process message from ${topic}`, err);
+    }
+  });
+
+  mqttClient.on("error", (err) => {
+    console.error("[MQTT] Client error", err.message);
+  });
+}
+
 // ถ้า lights.json หาย, JSON เสีย, หรือ key ไม่ครบ ให้ซ่อมข้อมูล
 function initDB() {
   try {
-    const lights = readLights();
-
-    const mergedLights = {
-      ...DEFAULT_LIGHTS,
-      ...lights,
-      sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
-      device: {
-        ...DEFAULT_LIGHTS.device,
-        ...(lights.device || {}),
-      },
-    };
-
-    writeLights(mergedLights);
+    writeNormalizedLights(readLights());
   } catch {
     console.log("[DB] lights.json not found or invalid — creating with defaults");
     writeLights(DEFAULT_LIGHTS);
@@ -86,21 +211,12 @@ function initDB() {
 }
 
 initDB();
+connectMqtt();
 
 // GET /api/lights — ดึงสถานะไฟทั้งหมด + ข้อมูล ESP32 + sensor config
 app.get("/api/lights", (req, res) => {
   try {
-    const lights = readLights();
-
-    res.json({
-      ...DEFAULT_LIGHTS,
-      ...lights,
-      sensorTargets: normalizeSensorTargets(lights.sensorTargets || []),
-      device: {
-        ...DEFAULT_LIGHTS.device,
-        ...(lights.device || {}),
-      },
-    });
+    res.json(readNormalizedLights());
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -121,7 +237,7 @@ app.get("/api/lights/:id", (req, res) => {
   }
 
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
 
     res.json({
       success: true,
@@ -148,7 +264,7 @@ app.post("/api/lights/all/:state", (req, res) => {
   }
 
   try {
-    const oldData = readLights();
+    const oldData = readNormalizedLights();
     const value = state === "on";
 
     const lights = {
@@ -165,7 +281,7 @@ app.post("/api/lights/all/:state", (req, res) => {
       },
     };
 
-    writeLights(lights);
+    persistLightsAndBroadcast(lights, "rest-api");
 
     res.json({
       success: true,
@@ -192,12 +308,12 @@ app.post("/api/lights/sensor-config", (req, res) => {
   }
 
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
     const normalizedTargets = normalizeSensorTargets(sensorTargets);
 
     lights.sensorTargets = normalizedTargets;
 
-    writeLights(lights);
+    persistLightsAndBroadcast(lights, "rest-api");
 
     res.json({
       success: true,
@@ -216,7 +332,7 @@ app.post("/api/lights/sensor-config", (req, res) => {
 // GET /api/lights/sensor-config — ดู config หลอดที่ใช้ sensor
 app.get("/api/lights/sensor-config", (req, res) => {
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
 
     res.json({
       success: true,
@@ -245,7 +361,7 @@ app.post("/api/lights/sensor/:state", (req, res) => {
   }
 
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
     const targets = normalizeSensorTargets(lights.sensorTargets || []);
     const value = state === "on";
 
@@ -255,7 +371,7 @@ app.post("/api/lights/sensor/:state", (req, res) => {
 
     lights.sensorTargets = targets;
 
-    writeLights(lights);
+    persistLightsAndBroadcast(lights, "rest-api");
 
     res.json({
       success: true,
@@ -291,12 +407,12 @@ app.post("/api/lights/:id/:state", (req, res) => {
   }
 
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
 
     lights[`light${id}`] = state === "on";
     lights.sensorTargets = normalizeSensorTargets(lights.sensorTargets || []);
 
-    writeLights(lights);
+    persistLightsAndBroadcast(lights, "rest-api");
 
     res.json({
       success: true,
@@ -337,27 +453,19 @@ app.post("/api/device", (req, res) => {
   }
 
   try {
-    const lights = readLights();
-
-    lights.device = {
+    const device = persistDeviceAndBroadcast({
       ssid,
       ip,
       rssi,
       lastSeen: new Date().toISOString(),
-
-      // optional จาก ESP32
       lightSensor: typeof lightSensor === "number" ? lightSensor : null,
       isDark: typeof isDark === "boolean" ? isDark : null,
-    };
-
-    lights.sensorTargets = normalizeSensorTargets(lights.sensorTargets || []);
-
-    writeLights(lights);
+    }, "rest-api");
 
     res.json({
       success: true,
       message: "Device status updated",
-      device: lights.device,
+      device,
     });
   } catch (err) {
     res.status(500).json({
@@ -370,7 +478,7 @@ app.post("/api/device", (req, res) => {
 // GET /api/device — frontend เรียกดูข้อมูล ESP32 แยกได้
 app.get("/api/device", (req, res) => {
   try {
-    const lights = readLights();
+    const lights = readNormalizedLights();
 
     res.json({
       success: true,
