@@ -134,8 +134,13 @@ function publishMqtt(topic, payload, options = {}) {
 }
 
 function publishLightState(lights, source = "backend") {
+  const normalized = normalizeLights(lights);
   publishMqtt(MQTT_LIGHT_TOPIC, {
-    ...normalizeLights(lights),
+    light1: Boolean(normalized.light1),
+    light2: Boolean(normalized.light2),
+    light3: Boolean(normalized.light3),
+    light4: Boolean(normalized.light4),
+    light5: Boolean(normalized.light5),
     source,
     updatedAt: new Date().toISOString(),
   });
